@@ -1,0 +1,10 @@
+{
+  "name": "抖音自动刷视频-手机版",
+  "main": "main.js",
+  "ignore": [
+    "build"
+  ],
+  "packageName": "com.local.douyin.autoswipe",
+  "versionName": "1.0.0",
+  "versionCode": 1
+}
