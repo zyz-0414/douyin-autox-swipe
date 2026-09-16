@@ -1,4 +1,3 @@
-"ui";
 "use strict";
 
 function createFloatControl(options) {
@@ -7,6 +6,9 @@ function createFloatControl(options) {
   var onStop = options.onStop || function () {};
   var onClose = options.onClose || function () {};
 
+  // 使用 floaty.window，且不启用 "ui" Activity 模式：
+  // 1) 避免打开空白 ScriptExecuteActivity 白屏
+  // 2) 避免关闭 Activity 时 Rhino Context 已销毁导致崩溃
   var window = floaty.window(
     <frame bg="#CC111111" padding="12">
       <vertical>
@@ -27,24 +29,29 @@ function createFloatControl(options) {
   );
 
   window.setPosition(40, 220);
-  window.exitOnClose();
+  // 不要 exitOnClose：关闭窗口后由业务侧统一延迟 exit，避免引擎销毁竞态。
 
   var running = false;
   var closed = false;
 
   function safeUi(fn) {
+    if (closed) return;
     try {
       ui.run(fn);
     } catch (e) {
-      try { fn(); } catch (e2) {}
+      try {
+        fn();
+      } catch (e2) {}
     }
   }
 
   function setRunningUi(isRunning) {
-    running = isRunning;
+    running = !!isRunning;
     safeUi(function () {
-      window.startBtn.setEnabled(!isRunning);
-      window.stopBtn.setEnabled(isRunning);
+      try {
+        window.startBtn.setEnabled(!isRunning);
+        window.stopBtn.setEnabled(isRunning);
+      } catch (e) {}
     });
   }
 
@@ -78,43 +85,61 @@ function createFloatControl(options) {
     if (running || closed) return;
     setRunningUi(true);
     safeUi(function () {
-      window.status.setText("状态：准备开始");
+      try {
+        window.status.setText("状态：准备开始");
+      } catch (e) {}
     });
-    onStart();
+    try {
+      onStart();
+    } catch (e2) {
+      setRunningUi(false);
+      toast("启动失败：" + e2);
+    }
   });
 
   window.stopBtn.click(function () {
     if (!running || closed) return;
-    onStop();
+    try {
+      onStop();
+    } catch (e) {}
   });
 
   window.closeBtn.click(function () {
     if (closed) return;
     closed = true;
-    try { onStop(); } catch (e) {}
-    try { onClose(); } catch (e2) {}
-    try { window.close(); } catch (e3) {}
-    exit();
+    try {
+      onStop();
+    } catch (e) {}
+    try {
+      onClose();
+    } catch (e2) {}
+    // 窗口关闭交给外部 shutdown/close，避免这里同步 exit 触发 Context 异常。
   });
 
   return {
     setStatus: function (text) {
       safeUi(function () {
-        window.status.setText("状态：" + text);
+        try {
+          window.status.setText("状态：" + text);
+        } catch (e) {}
       });
     },
     setCount: function (n) {
       safeUi(function () {
-        window.count.setText("已刷：" + n);
+        try {
+          window.count.setText("已刷：" + n);
+        } catch (e) {}
       });
     },
     setCountdown: function (sec) {
       safeUi(function () {
-        if (sec === null || sec === undefined || sec < 0) {
-          window.countdown.setText("倒计时：-");
-        } else {
-          window.countdown.setText("倒计时：" + Number(sec).toFixed(1) + "s");
-        }
+        try {
+          if (sec === null || sec === undefined || sec < 0) {
+            window.countdown.setText("倒计时：-");
+          } else {
+            window.countdown.setText("倒计时：" + Number(sec).toFixed(1) + "s");
+          }
+        } catch (e) {}
       });
     },
     onStopped: function () {
@@ -122,7 +147,9 @@ function createFloatControl(options) {
     },
     close: function () {
       closed = true;
-      try { window.close(); } catch (e) {}
+      try {
+        window.close();
+      } catch (e) {}
     },
   };
 }

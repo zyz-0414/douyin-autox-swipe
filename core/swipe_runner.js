@@ -12,30 +12,56 @@ function randomStaySeconds() {
 
 function createSwipeRunner(ui) {
   var running = false;
+  var stopping = false;
   var worker = null;
   var swipedCount = 0;
 
+  function alive() {
+    return running && !stopping;
+  }
+
   function setStatus(text) {
-    if (ui && ui.setStatus) ui.setStatus(text);
+    if (stopping) return;
+    try {
+      if (ui && ui.setStatus) ui.setStatus(text);
+    } catch (e) {}
   }
 
   function setCount(n) {
-    if (ui && ui.setCount) ui.setCount(n);
+    if (stopping) return;
+    try {
+      if (ui && ui.setCount) ui.setCount(n);
+    } catch (e) {}
   }
 
   function setCountdown(sec) {
-    if (ui && ui.setCountdown) ui.setCountdown(sec);
+    if (stopping) return;
+    try {
+      if (ui && ui.setCountdown) ui.setCountdown(sec);
+    } catch (e) {}
   }
 
   function sleepInterruptible(totalMs) {
     var left = totalMs;
-    while (running && left > 0) {
+    while (alive() && left > 0) {
       var step = Math.min(200, left);
       sleep(step);
       left -= step;
       setCountdown(Math.max(0, left / 1000));
     }
-    return running;
+    return alive();
+  }
+
+  function finish(statusText) {
+    running = false;
+    if (!stopping) {
+      setStatus(statusText || "已停止");
+      setCountdown(0);
+      try {
+        if (ui && ui.onStopped) ui.onStopped(true);
+      } catch (e) {}
+    }
+    worker = null;
   }
 
   function loop() {
@@ -43,7 +69,7 @@ function createSwipeRunner(ui) {
     swipedCount = 0;
     setCount(0);
 
-    while (running) {
+    while (alive()) {
       var stay = randomStaySeconds();
       setStatus("观看中");
       setCountdown(stay);
@@ -52,19 +78,21 @@ function createSwipeRunner(ui) {
         break;
       }
 
-      if (!running) break;
+      if (!alive()) break;
 
       setStatus("滑动中");
       setCountdown(0);
-      var ok = gesture.swipeUp();
+      var ok = false;
+      try {
+        ok = gesture.swipeUp();
+      } catch (e) {
+        ok = false;
+      }
       if (!ok) {
         failCount += 1;
         setStatus("滑动失败 " + failCount + "/" + config.maxSwipeFailures);
         if (failCount >= config.maxSwipeFailures) {
-          running = false;
-          setStatus("已停止：请回到视频页");
-          if (ui && ui.onStopped) ui.onStopped(false);
-          worker = null;
+          finish("已停止：请回到视频页");
           return;
         }
         if (!sleepInterruptible(800)) break;
@@ -76,28 +104,36 @@ function createSwipeRunner(ui) {
       setCount(swipedCount);
     }
 
-    setStatus("已停止");
-    setCountdown(0);
-    if (ui && ui.onStopped) ui.onStopped(true);
-    worker = null;
+    finish(stopping ? "已停止" : "已停止");
   }
 
   return {
     start: function () {
       if (running || worker) return false;
       running = true;
+      stopping = false;
       setStatus("准备开始");
       worker = threads.start(function () {
-        loop();
+        try {
+          loop();
+        } catch (e) {
+          // 关闭脚本时线程可能被中断，忽略收尾异常。
+          worker = null;
+          running = false;
+        }
       });
       return true;
     },
     stop: function () {
+      stopping = true;
       running = false;
       setStatus("正在停止...");
+      try {
+        if (worker && worker.interrupt) worker.interrupt();
+      } catch (e) {}
     },
     isRunning: function () {
-      return !!running;
+      return !!running && !stopping;
     },
     getCount: function () {
       return swipedCount;
