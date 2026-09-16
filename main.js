@@ -41,6 +41,10 @@ var uiBridge = floatControl.createFloatControl({
   onStop: function () {
     if (runner) runner.stop();
   },
+  onClose: function () {
+    if (runner) runner.stop();
+    toast("已关闭");
+  },
 });
 
 uiBridge.setStatus(auto.service ? "未开始" : "请开启无障碍权限");
