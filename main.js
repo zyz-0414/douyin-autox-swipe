@@ -48,14 +48,17 @@ function shutdown(reason) {
   }, 120);
 }
 
-try {
+function initialize() {
   // 悬浮窗权限未开时给出明确提示，避免“看起来没反应”。
   try {
     if (typeof floaty !== "undefined" && floaty.checkPermission && !floaty.checkPermission()) {
-      toast("请先开启悬浮窗权限");
+      toast("请先开启悬浮窗权限，授权后重新运行脚本");
       try {
         floaty.requestPermission();
       } catch (e) {}
+      // 请求权限只打开系统设置；此时不能在 UI 线程创建悬浮窗。
+      // 不创建窗口或保活定时器，让本次脚本自然结束。
+      return;
     }
   } catch (e) {}
 
@@ -75,7 +78,7 @@ try {
         return;
       }
       toast("开始自动刷视频：请确保已在抖音视频页");
-      runner.start();
+      return runner.start();
     },
     onStop: function () {
       safeStopRunner();
@@ -92,6 +95,10 @@ try {
 
   // 无界面脚本需要保持进程，直到用户点关闭。
   setInterval(function () {}, 1000);
+}
+
+try {
+  initialize();
 } catch (e) {
   toast("启动失败：" + e);
   console.error(e);

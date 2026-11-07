@@ -34,24 +34,37 @@ function createFloatControl(options) {
   var running = false;
   var closed = false;
 
-  function safeUi(fn) {
+  function safeUi(fn, shouldUpdate) {
     if (closed) return;
+    function update() {
+      // 工作线程的更新可能已排入 UI 队列，执行时仍需确认所属任务有效。
+      if (closed || (typeof shouldUpdate === "function" && !shouldUpdate())) return;
+      fn();
+    }
     try {
-      ui.run(fn);
+      ui.run(update);
     } catch (e) {
       try {
-        fn();
+        // 中断可能让同步 ui.run 失败；仍交给 UI 线程，不能直接修改视图。
+        ui.post(update);
       } catch (e2) {}
     }
   }
 
-  function setRunningUi(isRunning) {
-    running = !!isRunning;
+  function setRunningUi(isRunning, shouldUpdate) {
     safeUi(function () {
+      running = !!isRunning;
       try {
         window.startBtn.setEnabled(!isRunning);
         window.stopBtn.setEnabled(isRunning);
       } catch (e) {}
+    }, shouldUpdate);
+  }
+
+  function startFailed(message) {
+    setRunningUi(false);
+    safeUi(function () {
+      window.status.setText("状态：" + message);
     });
   }
 
@@ -90,9 +103,11 @@ function createFloatControl(options) {
       } catch (e) {}
     });
     try {
-      onStart();
+      if (onStart() === false) {
+        startFailed("启动失败，请稍后重试");
+      }
     } catch (e2) {
-      setRunningUi(false);
+      startFailed("启动失败：" + e2);
       toast("启动失败：" + e2);
     }
   });
@@ -117,21 +132,21 @@ function createFloatControl(options) {
   });
 
   return {
-    setStatus: function (text) {
+    setStatus: function (text, shouldUpdate) {
       safeUi(function () {
         try {
           window.status.setText("状态：" + text);
         } catch (e) {}
-      });
+      }, shouldUpdate);
     },
-    setCount: function (n) {
+    setCount: function (n, shouldUpdate) {
       safeUi(function () {
         try {
           window.count.setText("已刷：" + n);
         } catch (e) {}
-      });
+      }, shouldUpdate);
     },
-    setCountdown: function (sec) {
+    setCountdown: function (sec, shouldUpdate) {
       safeUi(function () {
         try {
           if (sec === null || sec === undefined || sec < 0) {
@@ -140,10 +155,10 @@ function createFloatControl(options) {
             window.countdown.setText("倒计时：" + Number(sec).toFixed(1) + "s");
           }
         } catch (e) {}
-      });
+      }, shouldUpdate);
     },
-    onStopped: function () {
-      setRunningUi(false);
+    onStopped: function (shouldUpdate) {
+      setRunningUi(false, shouldUpdate);
     },
     close: function () {
       closed = true;
